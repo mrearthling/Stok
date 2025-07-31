@@ -1,0 +1,13 @@
+{
+  "products": [],
+  "stockMoves": [],
+  "sales": [],
+  "users": [
+    {
+      "id": 1,
+      "username": "Avrasya",
+      "password": "123456",
+      "role": "admin"
+    }
+  ]
+}
