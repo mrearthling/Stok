@@ -1,6 +1,6 @@
 const STORAGE_KEY = 'stokTakipCicekData';
 const CRITICAL_DEFAULT = 10; // Kritik stok seviyesi
-const API_BASE_URL = 'http://localhost:3000'; // Burayı kendi web sunucusu URL'nizle değiştireceksiniz.
+const API_BASE_URL = 'https://stok-mfax.onrender.com';
 
 const app = Vue.createApp({
   data() {
