@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stok ve Satış Takip Uygulaması</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div v-if="!isLoggedIn" class="login-container">
+        <h2>Giriş Yap</h2>
+        <form @submit.prevent="login">
+            <input type="text" v-model="loginUsername" placeholder="Kullanıcı Adı" required>
+            <input type="password" v-model="loginPassword" placeholder="Şifre" required>
+            <button type="submit">Giriş Yap</button>
+        </form>
+    </div>
+
+    <div v-if="isLoggedIn">
+      <nav class="navbar">
+        <div class="logo">StokTakipÇiçek</div>
+        <ul>
+          <li :class="{active: page==='products'}" @click="page='products'">Ürünler</li>
+          <li :class="{active: page==='stockview'}" @click="page='stockview'">Genel Stok</li>
+          <li :class="{active: page==='stock'}" @click="page='stock'">Stok İşlemleri</li>
+          <li :class="{active: page==='sales'}" @click="page='sales'">Satış</li>
+          <li :class="{active: page==='reports'}" @click="page='reports'">Raporlar</li>
+          <li v-if="isAdmin()" :class="{active: page==='users'}" @click="page='users'; fetchData('users');">Kullanıcılar</li>
+          <li @click="logout" class="logout-btn">Çıkış Yap ({{ currentUser ? currentUser.username : '' }})</li>
+        </ul>
+        <button @click="toggleTheme" class="theme-btn">
+          <span v-if="theme==='light'">🌞</span>
+          <span v-else>🌙</span>
+        </button>
+      </nav>
+      <main>
+        <!-- Hoş geldin ve rehber -->
+        <div v-if="showWelcome" class="welcome-box">
+          <h2>Hoş geldiniz!</h2>
+          <p>Bu uygulama ile çiçek içerik bazlı stok ve satış takibi yapabilirsiniz. Ürün ekleyin, stok giriş/çıkış işlemleri yapın, satışlarınızı kaydedin ve raporları görüntüleyin.</p>
+          <button @click="showWelcome=false">Kapat</button>
+        </div>
+        <!-- Ürün Yönetimi -->
+        <section v-if="page==='products'">
+          <div class="section-header">
+            <h2>İçerik Ürünleri</h2>
+            <button @click="showProductForm('content')">+ İçerik Ürünü Ekle</button>
+          </div>
+          <table class="table-pro">
+            <thead>
+              <tr>
+                <th>Adı</th>
+                <th>Kodu</th>
+                <th>Birim</th>
+                <th>Stok</th>
+                <th>Kritik</th>
+                <th>Görsel</th>
+                <th>İşlemler</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="content in contents" :key="content.id">
+                <td>{{content.name}}</td>
+                <td>{{content.code}}</td>
+                <td>{{content.unit}}</td>
+                <td>{{content.stock}}</td>
+                <td>{{content.critical}}</td>
+                <td>
+                  <img v-if="content.imageUrl" :src="content.imageUrl" alt="Ürün Görseli" class="product-image" @click="showLargeImage(content.imageUrl)">
+                </td>
+                <td>
+                  <button @click="editProduct(content)" title="Düzenle">✏️</button>
+                  <button @click="deleteProduct(content.id)" title="Sil">🗑️</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="section-header" style="margin-top:2em;">
+            <h2>Buketler / Ürünler</h2>
+            <button @click="showProductForm('product')">+ Buket/Ürün Ekle</button>
+          </div>
+          <table class="table-pro">
+            <thead>
+              <tr>
+                <th>Adı</th>
+                <th>Kodu</th>
+                <th>İçerik</th>
+                <th>Görsel</th>
+                <th>İşlemler</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="product in bouquets" :key="product.id">
+                <td>{{product.name}}</td>
+                <td>{{product.code}}</td>
+                <td>
+                  <div v-for="c in product.contents" :key="c.contentId">
+                    {{getContentName(c.contentId)}} ({{c.amount}} {{getContentUnit(c.contentId)}})
+                  </div>
+                </td>
+                <td>
+                  <img v-if="product.imageUrl" :src="product.imageUrl" alt="Ürün Görseli" class="product-image" @click="showLargeImage(product.imageUrl)">
+                </td>
+                <td>
+                  <button @click="editProduct(product)" title="Düzenle">✏️</button>
+                  <button @click="copyProduct(product)" title="Kopyala">📋</button>
+                  <button @click="deleteProduct(product.id)" title="Sil">🗑️</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+        <!-- Genel Stok Görüntüleme -->
+        <section v-if="page==='stockview'">
+          <div class="section-header">
+            <h2>Genel Stok</h2>
+            <input v-model="stockSearch" placeholder="Çiçek türü ara..." class="search-box">
+          </div>
+          <table class="table-pro">
+            <thead>
+              <tr>
+                <th>Çiçek Türü</th>
+                <th>Stok</th>
+                <th>Birim</th>
+                <th>Uyarı</th>
+                <th>Geçmiş</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="content in filteredContents" :key="content.id">
+                <td>{{content.name}}</td>
+                <td :class="{'low-stock': content.stock <= content.critical}">{{content.stock}}</td>
+                <td>{{content.unit}}</td>
+                <td>
+                  <span v-if="content.stock <= content.critical" title="Kritik stok!" class="warn-icon">⚠️</span>
+                </td>
+                <td>
+                  <button @click="showContentHistory(content)">📈</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <!-- İçerik geçmişi modalı -->
+          <div v-if="showHistoryModal" class="modal">
+            <div class="modal-content">
+              <h3>{{historyContentName}} - Stok Geçmişi</h3>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Tarih</th>
+                    <th>Tip</th>
+                    <th>Miktar</th>
+                    <th>Açıklama</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="move in historyMoves" :key="move.id">
+                    <td>{{formatDate(move.date)}}</td>
+                    <td>{{move.type}}</td>
+                    <td>{{move.amount}}</td>
+                    <td>{{move.note}}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="modal-actions">
+                <button @click="showHistoryModal=false">Kapat</button>
+              </div>
+            </div>
+          </div>
+        </section>
+        <!-- Stok İşlemleri -->
+        <section v-if="page==='stock'">
+          <div class="section-header">
+            <h2>Stok İşlemleri (Sadece İçerik Ürünleri)</h2>
+            <button @click="showStockModal=true">+ Stok Hareketi Ekle</button>
+          </div>
+          <table class="table-pro">
+            <thead>
+              <tr>
+                <th>Tarih</th>
+                <th>Çiçek Türü</th>
+                <th>Miktar</th>
+                <th>Birim</th>
+                <th>Tip</th>
+                <th>Açıklama</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="move in stockMovesSorted" :key="move.id">
+                <td>{{formatDate(move.date)}}</td>
+                <td>{{getContentName(move.contentId)}}</td>
+                <td>{{move.amount}}</td>
+                <td>{{getContentUnit(move.contentId)}}</td>
+                <td>{{move.type}}</td>
+                <td>{{move.note}}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+        <!-- Satış Modülü -->
+        <section v-if="page==='sales'">
+          <div class="section-header">
+            <h2>Satış Modülü</h2>
+            <button @click="showSaleModal=true">+ Satış Yap</button>
+          </div>
+          <table class="table-pro">
+            <thead>
+              <tr>
+                <th>Tarih</th>
+                <th>Tip</th>
+                <th>Adı</th>
+                <th>Kodu</th>
+                <th>Miktar</th>
+                <th>Tutar</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="sale in salesSorted" :key="sale.id">
+                <td>{{formatDate(sale.date)}}</td>
+                <td>{{sale.itemType === 'content' ? 'İçerik Ürünü' : 'Buket/Ürün'}}</td>
+                <td v-if="sale.itemType === 'content'">{{getContentName(sale.itemId)}}</td>
+                <td v-else>{{getProductName(sale.itemId)}}</td>
+                <td v-if="sale.itemType === 'content'">{{getProductCode(sale.itemId)}}</td>
+                <td v-else>{{getProductCode(sale.itemId)}}</td>
+                <td>{{sale.amount}}</td>
+                <td>{{sale.total | currency}}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+        <!-- Raporlama -->
+        <section v-if="page==='reports'">
+          <div class="section-header">
+            <h2>Raporlama</h2>
+            <button @click="exportData('json')">JSON Export</button>
+            <button @click="exportData('csv')">CSV Export</button>
+            <button @click="resetAllData" style="background:var(--danger);margin-left:1em;">Verileri Sıfırla</button>
+            <label for="import-json" class="button">JSON Import</label>
+            <input type="file" id="import-json" accept=".json" @change="importData" style="display: none;">
+          </div>
+          <div v-if="saleSuccess" class="success-box">Satış sonrası stoklar güncellendi.</div>
+          <div v-if="importSuccess" class="success-box">Veriler başarıyla içe aktarıldı. Uygulama yenileniyor...</div>
+          <div class="report-block">
+            <h3>Çiçek Türü Bazlı Stok Listesi</h3>
+            <table class="table-pro">
+              <thead>
+                <tr>
+                  <th>Çiçek Türü</th>
+                  <th>Stok</th>
+                  <th>Birim</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="content in contents" :key="content.id">
+                  <td>{{content.name}}</td>
+                  <td>{{content.stock}}</td>
+                  <td>{{content.unit}}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="report-block">
+            <h3>Çiçek Türüne Göre Satış Toplamları</h3>
+            <canvas id="contentSalesChart" height="120"></canvas>
+          </div>
+          <div class="report-block">
+            <h3>Günlük/Aylık Satış Raporu</h3>
+            <canvas id="dailySalesChart" height="120"></canvas>
+          </div>
+        </section>
+
+        <!-- Kullanıcı Yönetimi -->
+        <section v-if="page==='users' && isAdmin()">
+            <div class="section-header">
+                <h2>Kullanıcı Yönetimi</h2>
+                <button @click="addUser">Yeni Kullanıcı Ekle</button>
+            </div>
+            <table class="table-pro">
+                <thead>
+                    <tr>
+                        <th>Kullanıcı Adı</th>
+                        <th>Rol</th>
+                        <th>İşlemler</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="user in users" :key="user.id">
+                        <td>{{ user.username }}</td>
+                        <td>{{ user.role }}</td>
+                        <td>
+                            <button @click="deleteUser(user.id)" :disabled="user.username === 'Avrasya'" title="Sil">🗑️</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Ürün Modalı -->
+        <div v-if="showProductModal" class="modal">
+          <div class="modal-content">
+            <h3>{{productForm.type === 'content' ? 'İçerik Ürünü' : 'Buket/Ürün'}} {{editMode ? 'Düzenle' : 'Ekle'}}</h3>
+            <form @submit.prevent="saveProduct">
+              <div class="form-row">
+                <label>Tip:</label>
+                <select v-model="productForm.type">
+                  <option value="content">İçerik Ürünü</option>
+                  <option value="product">Buket/Ürün</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <input v-model="productForm.name" placeholder="Adı" required>
+                <input v-model="productForm.code" placeholder="Kodu" required>
+              </div>
+              <div class="form-row">
+                <input v-model="productForm.imageUrl" placeholder="Görsel URL (isteğe bağlı)">
+              </div>
+              <div v-if="productForm.type === 'content'">
+                <div class="form-row">
+                  <input v-model="productForm.unit" placeholder="Birim (adet/dal)" required>
+                  <input v-model.number="productForm.stock" type="number" min="0" placeholder="Stok" required>
+                  <input v-model.number="productForm.critical" type="number" min="0" placeholder="Kritik Stok" required>
+                </div>
+              </div>
+              <div v-else>
+                <h4>İçerik (Çiçekler)</h4>
+                <div v-for="(c, i) in productForm.contents" :key="i" class="variant-row">
+                  <select v-model="c.contentId" required>
+                    <option value="" disabled>Çiçek Türü Seç</option>
+                    <option v-for="content in contents" :value="content.id">{{content.name}} ({{content.unit}})</option>
+                  </select>
+                  <input v-model.number="c.amount" type="number" min="1" placeholder="Miktar" required>
+                  <button type="button" @click="removeContentFromProduct(i)">-</button>
+                </div>
+                <button type="button" @click="addContentToProduct">+ İçerik Ekle</button>
+              </div>
+              <div class="modal-actions">
+                <button type="submit">Kaydet</button>
+                <button type="button" @click="closeProductModal">İptal</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <!-- Stok Modalı -->
+        <div v-if="showStockModal" class="modal">
+          <div class="modal-content">
+            <h3>Stok Hareketi Ekle</h3>
+            <form @submit.prevent="saveStockMove">
+              <select v-model="stockForm.contentId" required>
+                <option value="" disabled>Çiçek Türü Seç</option>
+                <option v-for="c in contents" :value="c.id">{{c.name}}</option>
+              </select>
+              <select v-model="stockForm.type" required>
+                <option value="giriş">Stok Giriş</option>
+                <option value="çıkış">Stok Çıkış</option>
+                <option value="sayım">Sayım</option>
+              </select>
+              <input v-model.number="stockForm.amount" type="number" min="1" placeholder="Miktar" required>
+              <input v-model="stockForm.note" placeholder="Açıklama">
+              <div class="modal-actions">
+                <button type="submit">Kaydet</button>
+                <button type="button" @click="showStockModal=false">İptal</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <!-- Satış Modalı -->
+        <div v-if="showSaleModal" class="modal">
+          <div class="modal-content">
+            <h3>Satış Yap</h3>
+            <form @submit.prevent="saveSale">
+              <div class="form-row">
+                <label>Tip:</label>
+                <select v-model="saleForm.itemType">
+                  <option value="content">İçerik Ürünü</option>
+                  <option value="product">Buket/Ürün</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <select v-model="saleForm.itemId" required>
+                  <option value="" disabled>Seçiniz</option>
+                  <option v-if="saleForm.itemType==='content'" v-for="c in contents" :value="c.id">{{c.name}}</option>
+                  <option v-if="saleForm.itemType==='product'" v-for="p in bouquets" :value="p.id">{{p.name}}</option>
+                </select>
+                <input v-model.number="saleForm.amount" type="number" min="1" placeholder="Miktar" required>
+                <input v-model.number="saleForm.price" type="number" min="0" placeholder="Toplam Fiyat" required>
+              </div>
+              <div class="modal-actions">
+                <button type="submit">Satışı Kaydet</button>
+                <button type="button" @click="showSaleModal=false">İptal</button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <!-- Resim Büyütme Modalı -->
+        <div v-if="showImageModal" class="modal image-modal" @click="showImageModal = false">
+          <img :src="currentImageUrl" alt="Büyük Görsel">
+        </div>
+      </main>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
